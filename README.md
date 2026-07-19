@@ -9,6 +9,7 @@ single alarm sound, and never blocks or steals focus.
 ```
 timer <duration> [label...]
 timer               # no args: list all active timers and time remaining
+timer -k <pid>      # kill an active timer (pid shown in the listing)
 ```
 
 ### Duration formats
@@ -39,11 +40,17 @@ away. The worker sleeps until the deadline, plays the alarm sound once, and
 shows a desktop notification (`notify-send`) that disappears on its own after
 a few seconds without stealing keyboard/mouse focus - then it exits.
 
-Running bare `timer` with no arguments lists every active timer by scanning
-`/proc` for worker processes and reading each one's deadline/label straight
-out of its own argv. There's no separate state file or registry to keep in
-sync - the process table is the source of truth, so a timer disappears from
-the list the moment it's actually gone (rung, or killed).
+Running bare `timer` with no arguments lists every active timer's pid,
+remaining time, and label by scanning `/proc` for worker processes and
+reading each one's deadline/label straight out of its own argv. There's no
+separate state file or registry to keep in sync - the process table is the
+source of truth, so a timer disappears from the list the moment it's
+actually gone (rung, or killed).
+
+`timer -k <pid>` kills an active timer by the pid shown in that listing. It
+checks the pid actually belongs to one of the timer's own worker processes
+before signaling it, so a typo'd or unrelated pid is refused rather than
+silently killing the wrong process.
 
 ## Requirements
 

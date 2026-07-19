@@ -6,6 +6,7 @@ with a non-blocking notification + a single alarm sound when it finishes.
 Usage:
     timer <duration> [label...]
     timer               (no args) - list all active timers and time remaining
+    timer -k <pid>      - kill an active timer (pid shown in the listing)
 
 Duration formats:
     90          -> 90 seconds (bare integer = seconds)
@@ -34,6 +35,7 @@ How it works, in a nutshell:
 
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -115,17 +117,20 @@ def format_duration(total_seconds: int) -> str:
     return " ".join(parts)
 
 
-def list_timers() -> None:
+def _active_workers() -> list[tuple[int, str, int]]:
     """
-    Scan /proc for running worker processes and print each one's remaining
-    time and label, soonest-first. This is what bare `timer` (no arguments)
-    does. Rather than maintaining a separate registry of active timers, the
+    Scan /proc for running worker processes. Returns (remaining_seconds,
+    label, pid) tuples, soonest-first. Shared by list_timers() (to display
+    them) and kill_timer() (to confirm a pid the user names is actually one
+    of our timers before signaling it).
+
+    Rather than maintaining a separate registry of active timers, the
     process table is the source of truth: a worker's deadline and label are
     already sitting in its own argv (see start_timer's Popen call), so
     reading them directly can never drift out of sync with what's actually
     still running.
     """
-    entries = []  # (remaining_seconds, label)
+    entries = []  # (remaining_seconds, label, pid)
     for pid_str in os.listdir("/proc"):
         if not pid_str.isdigit():
             continue
@@ -154,17 +159,40 @@ def list_timers() -> None:
             continue
         label = argv[4]
         remaining = max(0, round(deadline - time.time()))
-        entries.append((remaining, label))
+        entries.append((remaining, label, int(pid_str)))
 
+    entries.sort()  # soonest-first
+    return entries
+
+
+def list_timers() -> None:
+    """Print every active timer's pid, remaining time, and label,
+    soonest-first. This is what bare `timer` (no arguments) does."""
+    entries = _active_workers()
     if not entries:
         print("No active timers.")
         return
 
-    entries.sort()  # soonest-first
     plural = "" if len(entries) == 1 else "s"
     print(f"{len(entries)} active timer{plural}:")
-    for remaining, label in entries:
-        print(f"  {format_duration(remaining):>10} remaining - {label}")
+    for remaining, label, pid in entries:
+        print(f"  [{pid}] {format_duration(remaining):>10} remaining - {label}")
+
+
+def kill_timer(pid: int) -> None:
+    """
+    Kill a running timer by pid, as shown in list_timers()'s output. Checks
+    the pid actually belongs to one of our timer workers first - via
+    _active_workers(), the same source of truth the listing uses - so a
+    typo'd or unrelated pid can't be signaled by mistake.
+    """
+    for _, label, entry_pid in _active_workers():
+        if entry_pid == pid:
+            os.kill(pid, signal.SIGTERM)
+            print(f"Killed timer [{pid}] ({label!r}).")
+            return
+    print(f"Error: no active timer with pid {pid}.", file=sys.stderr)
+    sys.exit(1)
 
 
 def start_timer(duration_text: str, label_words: list[str]) -> None:
@@ -277,6 +305,18 @@ def main() -> None:
 
     if not args:
         list_timers()
+        return
+
+    if args[0] in ("-k", "--kill"):
+        if len(args) != 2:
+            print("Usage: timer -k <pid>", file=sys.stderr)
+            sys.exit(1)
+        try:
+            pid = int(args[1])
+        except ValueError:
+            print(f"Error: invalid pid {args[1]!r}", file=sys.stderr)
+            sys.exit(1)
+        kill_timer(pid)
         return
 
     duration_text, *label_words = args
