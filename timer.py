@@ -39,13 +39,12 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-# Path to a sound that ships with most Linux desktops (the freedesktop
-# "sound theme"). We play this file directly with `paplay` rather than
-# going through a theme-name lookup (like `canberra-gtk-play -i ...`
-# would), because a direct file path has fewer moving parts and fewer
-# ways to fail silently.
-# ALARM_SOUND = "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
-ALARM_SOUND = "/home/crafty/Music/new/alarm.ogg"
+# The alarm sound lives alongside this script in the repo. We resolve via
+# realpath (not just __file__'s own directory) because `timer` is normally
+# invoked through a symlink (e.g. ~/.local/bin/timer) - __file__ would then
+# be the symlink's path, not the repo checkout, and dirname() of that would
+# point at the wrong directory.
+ALARM_SOUND = os.path.join(os.path.dirname(os.path.realpath(__file__)), "alarm.ogg")
 
 # A sentinel argument we pass to ourselves to say "don't act like the CLI,
 # act like the background worker." Leading underscore just signals
